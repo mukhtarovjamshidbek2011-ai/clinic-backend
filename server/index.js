@@ -15,9 +15,14 @@ import { FRONTEND_PUBLIC_URL, SERVER_PORT, TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USER
 dotenv.config()
 
 const app = express()
-const frontendOrigin = FRONTEND_PUBLIC_URL || process.env.FRONTEND_BASE_URL || 'http://localhost:5173'
-
-app.use(cors({ origin: frontendOrigin, credentials: true }))
+const frontendOrigin = FRONTEND_PUBLIC_URL || process.env.FRONTEND_BASE_URL || 'https://zamzam-clinic.netlify.app'
+const cors = require('cors');
+app.use(cors({
+  origin: [
+    "https://zamzam-clinic.netlify.app",
+  ],
+  credentials: true
+}));
 app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
 app.use(createRateLimiter({ windowMs: 60_000, max: 120 }))
