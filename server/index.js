@@ -16,10 +16,10 @@ dotenv.config()
 
 const app = express()
 const frontendOrigin = FRONTEND_PUBLIC_URL || process.env.FRONTEND_BASE_URL || 'https://zamzam-clinic.netlify.app'
-const cors = require('cors');
+
 app.use(cors({
   origin: [
-    "https://zamzam-clinic.netlify.app",
+    "https://zamzam-clinic.netlify.app"
   ],
   credentials: true
 }));
