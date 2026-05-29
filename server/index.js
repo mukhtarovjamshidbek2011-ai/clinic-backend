@@ -31,8 +31,6 @@ app.use('/auth', authRoutes)
 app.use('/booking', bookingRoutes)
 app.use('/notifications', notificationRoutes)
 app.use('/api/user', userRoutes)
-app.use(botAdapter.webhookCallback('/webhook'))
-
 app.get('/health', async (_req, res) => {
   let telegramStatus = false;
   try {
