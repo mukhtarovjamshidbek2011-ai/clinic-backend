@@ -18,11 +18,13 @@ const app = express()
 const frontendOrigin = FRONTEND_PUBLIC_URL || process.env.FRONTEND_BASE_URL || 'https://zamzam-clinic.netlify.app'
 
 app.use(cors({
-  origin: [
-    "https://zamzam-clinic.netlify.app"
-  ],
-  credentials: true
+  origin: 'https://zamzam-clinic.netlify.app',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+app.options('*', cors());
 app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
 app.use(createRateLimiter({ windowMs: 60_000, max: 120 }))
