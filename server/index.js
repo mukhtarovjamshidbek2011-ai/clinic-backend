@@ -15,16 +15,27 @@ import { FRONTEND_PUBLIC_URL, SERVER_PORT, TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USER
 dotenv.config()
 
 const app = express()
-const frontendOrigin = FRONTEND_PUBLIC_URL || process.env.FRONTEND_BASE_URL || 'https://zamzam-clinic.netlify.app'
+app.set('trust proxy', 1)
+const frontendOrigin = (FRONTEND_PUBLIC_URL || process.env.FRONTEND_BASE_URL || 'https://zamzam-clinic.netlify.app').replace(/\/$/, '')
+
+const allowedOrigins = [frontendOrigin]
 
 app.use(cors({
-  origin: 'https://zamzam-clinic.netlify.app',
+  origin(origin, callback) {
+    if (!origin) {
+      return callback(null, true)
+    }
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true)
+    }
+    return callback(new Error('Not allowed by CORS'))
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
-}));
+}))
 
-app.options('*', cors());
+app.options('*', cors())
 app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
 app.use(createRateLimiter({ windowMs: 60_000, max: 120 }))
