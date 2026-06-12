@@ -40,7 +40,9 @@ export async function telegramLogin(req, res) {
 export async function createTelegramLoginSession(req, res) {
   try {
     const sessionId = crypto.randomUUID()
-    const botUsername = TELEGRAM_BOT_USERNAME || 'zamzam_health_bot'
+    // Telegram deep links use the bare username — strip a leading "@" so a
+    // value like "@zamzam_health_bot" does not produce an invalid t.me link.
+    const botUsername = String(TELEGRAM_BOT_USERNAME || 'zamzam_health_bot').trim().replace(/^@/, '')
     const botLink = `https://t.me/${botUsername}?start=login:${sessionId}`
     cacheSet(`login_session:${sessionId}`, { status: 'pending', createdAt: Date.now() }, 10 * 60 * 1000)
     return res.json({ sessionId, botLink })

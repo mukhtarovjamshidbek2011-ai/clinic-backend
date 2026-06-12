@@ -16,26 +16,66 @@ dotenv.config()
 
 const app = express()
 app.set('trust proxy', 1)
-const frontendOrigin = (FRONTEND_PUBLIC_URL || process.env.FRONTEND_BASE_URL || 'https://zamzam-clinic.netlify.app').replace(/\/$/, '')
+// Build the allowlist of browser origins permitted to call this API.
+// Accepts a comma-separated CORS_ALLOWED_ORIGINS env plus the configured
+// frontend URLs, always allows localhost during development, and permits any
+// *.netlify.app host so renaming the Netlify site never breaks the API again.
+function normalizeOrigin(value) {
+  return String(value || '').trim().replace(/\/$/, '')
+}
 
-const allowedOrigins = [frontendOrigin]
+const configuredOrigins = [
+  process.env.CORS_ALLOWED_ORIGINS,
+  FRONTEND_PUBLIC_URL,
+  process.env.FRONTEND_BASE_URL,
+]
+  .filter(Boolean)
+  .flatMap((value) => String(value).split(','))
+  .map(normalizeOrigin)
+  .filter(Boolean)
 
-app.use(cors({
+const allowedOrigins = new Set([
+  ...configuredOrigins,
+  'https://zamzam-clinic.netlify.app',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://localhost:3000',
+])
+
+function isOriginAllowed(origin) {
+  const normalized = normalizeOrigin(origin)
+  if (!normalized) return false
+  if (allowedOrigins.has(normalized)) return true
+  try {
+    const { protocol, hostname } = new URL(normalized)
+    // Any Netlify-hosted frontend (covers future site renames) over HTTPS.
+    if (protocol === 'https:' && (hostname === 'netlify.app' || hostname.endsWith('.netlify.app'))) {
+      return true
+    }
+  } catch {
+    return false
+  }
+  return false
+}
+
+const corsOptions = {
   origin(origin, callback) {
     if (!origin) {
       return callback(null, true)
     }
-    if (allowedOrigins.includes(origin)) {
+    if (isOriginAllowed(origin)) {
       return callback(null, true)
     }
+    logger.warn('[CORS] Blocked request from disallowed origin', { origin })
     return callback(new Error('Not allowed by CORS'))
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
-}))
+}
 
-app.options('*', cors())
+app.use(cors(corsOptions))
+app.options('*', cors(corsOptions))
 app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
 app.use(createRateLimiter({ windowMs: 60_000, max: 120 }))
