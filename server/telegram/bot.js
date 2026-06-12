@@ -568,52 +568,70 @@ async function initTelegramBot() {
   })
 
   // register commands and start
-  try {
-    logger.info('[BOT] Registering commands')
-    await registerCommands(bot)
-    logger.info('[BOT] Commands registered, launching bot')
-    await bot.launch({ dropPendingUpdates: true })
-    logger.info('[BOT] bot.launch returned')
-    started = true
-    globalBotState.bot = bot
-    globalBotState.started = true
-    const info = await bot.telegram.getMe()
-    logger.info('[BOT] Telegram bot started successfully', { username: info.username, id: info.id })
-  } catch (err) {
-    const rawErrorText = String(err?.message || err?.response?.description || err?.description || err || '')
-    const isPollingConflict = rawErrorText.includes('terminated by other getUpdates request')
-      || rawErrorText.includes('409: Conflict')
-      || rawErrorText.includes('Conflict: terminated by other getUpdates request')
-      || rawErrorText.includes('another bot instance is running')
+  logger.info('[BOT] Registering commands')
+  await registerCommands(bot)
+  logger.info('[BOT] Commands registered, launching bot')
 
-    if (isPollingConflict) {
-      logger.warn('[BOT] Telegram polling conflict detected; another bot instance may be running. Skipping bot launch.', { error: rawErrorText })
+  // Register graceful shutdown BEFORE launching. bot.launch() blocks on the
+  // long-polling loop, so any code placed after it only runs once polling
+  // stops. Stopping the bot on SIGTERM/SIGINT releases the Telegram polling
+  // connection promptly, which prevents a "409 Conflict" with the next
+  // instance during a redeploy.
+  const stopBot = (reason) => {
+    logger.info(`[BOT] ${reason} received — stopping bot`)
+    try { bot && bot.stop(reason) } catch (_) {}
+  }
+  process.once('SIGINT', () => { stopBot('SIGINT'); process.exit(0) })
+  process.once('SIGTERM', () => { stopBot('SIGTERM'); process.exit(0) })
+
+  // On platforms like Render the previous instance can still be polling for a
+  // short while during a redeploy, so Telegram returns "409 Conflict". Retry
+  // until the old instance releases the connection instead of giving up and
+  // leaving the bot permanently offline.
+  const maxLaunchAttempts = 10
+  const retryDelayMs = 8_000
+
+  for (let attempt = 1; attempt <= maxLaunchAttempts; attempt++) {
+    try {
+      // launch() blocks on the polling loop; the onLaunch callback fires once
+      // the bot has connected, so the "started" state is marked there.
+      await bot.launch({ dropPendingUpdates: true }, () => {
+        started = true
+        globalBotState.bot = bot
+        globalBotState.started = true
+        logger.info('[BOT] Telegram bot started successfully', {
+          username: bot.botInfo?.username,
+          id: bot.botInfo?.id,
+        })
+      })
+      // Reached only when polling stops cleanly (e.g., graceful shutdown).
+      logger.info('[BOT] Polling loop ended')
+      break
+    } catch (err) {
+      const rawErrorText = String(err?.message || err?.response?.description || err?.description || err || '')
+      const isPollingConflict = rawErrorText.includes('terminated by other getUpdates request')
+        || rawErrorText.includes('409: Conflict')
+        || rawErrorText.includes('Conflict: terminated by other getUpdates request')
+        || rawErrorText.includes('another bot instance is running')
+
+      if (isPollingConflict && attempt < maxLaunchAttempts) {
+        started = false
+        globalBotState.started = false
+        logger.warn(`[BOT] Polling conflict (attempt ${attempt}/${maxLaunchAttempts}); another instance is still polling. Retrying in ${retryDelayMs / 1000}s.`, { error: rawErrorText })
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
+        continue
+      }
+
+      // Out of retries or a non-conflict failure — keep the HTTP server up but
+      // report the bot as not running.
+      logger.error('[BOT] Failed launching Telegraf', err)
       bot = null
       started = false
       globalBotState.bot = null
       globalBotState.started = false
-      return null
+      throw err
     }
-
-    logger.error('[BOT] Failed launching Telegraf', err)
-    bot = null
-    started = false
-    globalBotState.bot = null
-    globalBotState.started = false
-    throw err
   }
-
-  // graceful shutdown
-  process.once('SIGINT', async () => {
-    logger.info('SIGINT received — stopping bot')
-    try { await bot.stop(); } catch (_) {}
-    process.exit(0)
-  })
-  process.once('SIGTERM', async () => {
-    logger.info('SIGTERM received — stopping bot')
-    try { await bot.stop(); } catch (_) {}
-    process.exit(0)
-  })
 
   return bot
 }
