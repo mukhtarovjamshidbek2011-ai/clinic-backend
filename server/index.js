@@ -145,7 +145,7 @@ async function startServer() {
   const server = app.listen(port, async () => {
     logger.info('Backend listening on http://localhost:' + port)
     try {
-      await botAdapter.initTelegramBot()
+      await botAdapter.initTelegramBot(app)
     } catch (err) {
       logger.error('[BOT] Failed to initialize Telegram bot adapter on startup', err)
     }

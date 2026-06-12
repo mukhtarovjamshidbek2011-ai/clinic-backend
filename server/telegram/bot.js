@@ -31,7 +31,7 @@ async function registerCommands(b) {
   ])
 }
 
-async function initTelegramBot() {
+async function initTelegramBot(app) {
   if (globalBotState.started && globalBotState.bot) {
     logger.info('[BOT] Telegram bot already initialized, reusing instance')
     return globalBotState.bot
@@ -583,6 +583,32 @@ async function initTelegramBot() {
   }
   process.once('SIGINT', () => { stopBot('SIGINT'); process.exit(0) })
   process.once('SIGTERM', () => { stopBot('SIGTERM'); process.exit(0) })
+
+  // Prefer webhook mode when a public HTTPS domain is available (Render sets
+  // RENDER_EXTERNAL_URL automatically). Webhooks have no getUpdates polling, so
+  // there is never a "409 Conflict" between instances, and an incoming Telegram
+  // update also wakes a sleeping free-tier instance. Long polling is kept below
+  // as a fallback for local development.
+  const webhookDomain = (process.env.TELEGRAM_WEBHOOK_DOMAIN || process.env.RENDER_EXTERNAL_URL || '').trim()
+  if (webhookDomain && app && typeof app.use === 'function') {
+    try {
+      const middleware = await bot.createWebhook({ domain: webhookDomain, drop_pending_updates: true })
+      app.use(middleware)
+      started = true
+      globalBotState.bot = bot
+      globalBotState.started = true
+      const info = await bot.telegram.getMe()
+      logger.info('[BOT] Telegram bot started in WEBHOOK mode', {
+        domain: webhookDomain.replace(/\/$/, ''),
+        username: info.username,
+        id: info.id,
+      })
+      return bot
+    } catch (err) {
+      logger.error('[BOT] Webhook setup failed; falling back to long polling.', err)
+      // fall through to polling below
+    }
+  }
 
   // On platforms like Render the previous instance can still be polling for a
   // short while during a redeploy, so Telegram returns "409 Conflict". Retry
