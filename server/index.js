@@ -1,7 +1,6 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
-import net from 'net'
 import { createRateLimiter } from './middleware/rateLimiter.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import authRoutes from './routes/authRoutes.js'
@@ -119,29 +118,13 @@ function validateEnv() {
   warnings.forEach((warning) => logger.warn('[ENV]', warning))
 }
 
-function isPortAvailable(portNumber) {
-  return new Promise((resolve) => {
-    const tester = net.createServer()
-    tester.once('error', (err) => {
-      tester.close()
-      resolve(false)
-    })
-    tester.once('listening', () => {
-      tester.close()
-      resolve(true)
-    })
-    tester.listen(portNumber)
-  })
-}
-
 async function startServer() {
   validateEnv()
-  const available = await isPortAvailable(port)
-  if (!available) {
-    logger.warn('Backend already running on port', port)
-    return
-  }
 
+  // Bind the port directly. On hosts like Render the port is always free
+  // (dedicated container) and the platform fails the deploy if no port opens,
+  // so an extra "is the port free?" pre-check only adds a race that can stop
+  // the server from binding at all.
   const server = app.listen(port, async () => {
     logger.info('Backend listening on http://localhost:' + port)
     try {
@@ -153,7 +136,7 @@ async function startServer() {
 
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-      logger.warn('Backend already running on port', port)
+      logger.error('Port ' + port + ' is already in use — is another instance running?', err)
     } else {
       logger.error('Express server error', err)
     }
