@@ -6,6 +6,7 @@ import { mainKeyboard, helpText } from './keyboards/mainKeyboard.js'
 import userService from './services/userService.js'
 import bookingService from './services/bookingService.js'
 import telegramAuthService from './services/telegramAuthService.js'
+import { getActiveDoctors } from '../services/doctorRepository.js'
 
 const globalBotState = globalThis.__ZAMZAM_TELEGRAM_BOT_STATE__ ||= { bot: null, started: false }
 let bot = globalBotState.bot
@@ -486,8 +487,24 @@ async function initTelegramBot(app) {
   
   bot.hears('🩺 Shifokorlar', async (ctx) => {
     logger.info('Button Shifokorlar clicked', { id: ctx.from?.id })
-    const doctorsListText = `👨‍⚕️ *Bizning yuqori malakali shifokorlarimiz:*\n\n1️⃣ *Dr. Alisher Karimov* — Kardiolog\n⭐ 4.9 | 10+ yillik tajriba | 1,200+ shifo topgan bemor\n\n2️⃣ *Dr. Fatima Al-Rashid* — Nevrolog\n⭐ 4.8 | 8+ yillik tajriba | 950+ shifo topgan bemor\n\n3️⃣ *Dr. Omar Hassan* — Ginekolog\n⭐ 4.9 | 12+ yillik tajriba | 1,500+ shifo topgan bemor\n\n4️⃣ *Dr. Aisha Ahmed* — Pediatr\n⭐ 4.7 | 7+ yillik tajriba | 2,100+ shifo topgan bemor\n\n5️⃣ *Dr. Hassan Ibrahim* — Stomatolog\n⭐ 4.8 | 9+ yillik tajriba | 800+ shifo topgan bemor\n\n6️⃣ *Dr. Zainab Al-Mansouri* — Xirurg\n⭐ 4.9 | 15+ yillik tajriba | 650+ shifo topgan bemor\n\n📅 Shifokor ko‘rigiga yozilish uchun klinikamizning rasmiy veb-saytidan yoki ro‘yxatxonadan ro'yxatdan o‘tin.`
-    await ctx.replyWithMarkdown(doctorsListText, mainKeyboard())
+    try {
+      const doctors = await getActiveDoctors()
+      if (!doctors || doctors.length === 0) {
+        return ctx.replyWithHTML("🩺 <b>Hozircha shifokorlar qo'shilmagan.</b>\n\nTez orada bizning mutaxassislarimiz qo'shiladi.", mainKeyboard())
+      }
+      let text = '👨‍⚕️ <b>Bizning shifokorlarimiz:</b>\n\n'
+      doctors.forEach((d, i) => {
+        const name = escapeHTML(d.name || d.fullName || "Noma'lum")
+        const spec = escapeHTML(d.specialty || d.speciality || d.specialization || '—')
+        const exp = d.experience ? ` — ${escapeHTML(String(d.experience))} yil tajriba` : ''
+        text += `${i + 1}. 👨‍⚕️ <b>${name}</b>\n   🩺 ${spec}${exp}\n\n`
+      })
+      text += '📅 Yozilish uchun veb-saytimizga tashrif buyuring.'
+      await ctx.replyWithHTML(text, mainKeyboard())
+    } catch (err) {
+      logger.error('Shifokorlar list error', err)
+      await ctx.reply("Shifokorlar ro'yxatini yuklashda xatolik yuz berdi. Iltimos qayta urinib ko'ring.", mainKeyboard())
+    }
   })
 
   // Callback query handler

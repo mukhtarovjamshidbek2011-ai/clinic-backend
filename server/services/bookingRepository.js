@@ -24,8 +24,31 @@ export async function getBookingsByTelegramId(telegramId) {
 
   await initFirebaseAdmin()
   const db = getFirestore()
-  const snapshot = await db.collection('bookings').where('telegramId', '==', telegramId).get()
-  const docs = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+  const bookingsRef = db.collection('bookings')
+
+  // The website saves a booking with `userId` set to the logged-in (Telegram)
+  // user's id and does not set a `telegramId` field. Match `userId` (as string
+  // and number) plus any legacy `telegramId`, then merge and de-duplicate.
+  const idStr = String(telegramId).trim()
+  const idNum = Number(idStr)
+  const queryPromises = [
+    bookingsRef.where('userId', '==', idStr).get(),
+    bookingsRef.where('telegramId', '==', idStr).get(),
+  ]
+  if (idStr !== '' && !Number.isNaN(idNum)) {
+    queryPromises.push(bookingsRef.where('userId', '==', idNum).get())
+    queryPromises.push(bookingsRef.where('telegramId', '==', idNum).get())
+  }
+
+  const snapshots = await Promise.all(queryPromises.map((p) => p.catch(() => null)))
+  const byId = new Map()
+  for (const snapshot of snapshots) {
+    if (!snapshot) continue
+    for (const docSnap of snapshot.docs) {
+      byId.set(docSnap.id, { id: docSnap.id, ...docSnap.data() })
+    }
+  }
+  const docs = Array.from(byId.values())
   
   // Sort in-memory by bookingDate and bookingTime to prevent index requirement
   docs.sort((a, b) => {
