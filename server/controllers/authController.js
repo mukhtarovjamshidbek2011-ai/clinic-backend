@@ -79,37 +79,27 @@ export async function verifyToken(req, res) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET)
+    const jti = decoded.jti || null
+
+    // The frontend polls and can call verify-token several times for the same
+    // login (and a user may trigger /start more than once). Make verification
+    // idempotent: cache the result per token id so repeated calls return the
+    // same success instead of failing as "already used", and so each login
+    // link is validated independently.
+    if (jti) {
+      const cached = cacheGet(`login_verified:${jti}`)
+      if (cached) {
+        return res.json(cached)
+      }
+    }
+
     const { getUserByTelegramId } = await import('../auth/userRepository.js')
     const userRecord = await getUserByTelegramId(decoded.telegramId)
     if (!userRecord) {
       return res.status(404).json({ error: 'Foydalanuvchi topilmadi.' })
     }
 
-    const { DATABASE_CLIENT, JWT_EXPIRES_IN } = await import('../config/appConfig.js')
-    const telegramId = userRecord.telegram_id || userRecord.telegramId || userRecord.id
-
-    // Check jti to prevent token reuse
-    const savedJti = DATABASE_CLIENT === 'postgres' ? userRecord.last_login_jti : userRecord.lastLoginJti
-    if (!decoded.jti || decoded.jti !== savedJti) {
-      logger.warn('Token reuse or invalid jti detected', { telegramId, decodedJti: decoded.jti, savedJti })
-      return res.status(401).json({ error: 'Ushbu kirish havolasi allaqachon ishlatilgan yoki yaroqsiz.' })
-    }
-
-    // Clear jti in the database
-    if (DATABASE_CLIENT === 'postgres') {
-      const { initPostgres, query: pgQuery } = await import('../services/postgresClient.js')
-      await initPostgres()
-      await pgQuery('UPDATE users SET last_login_jti = NULL, login_token_expires_at = NULL WHERE telegram_id = $1', [telegramId])
-      logger.info('verifyToken: cleared last_login_jti in Postgres', { telegramId })
-    } else {
-      const { initFirebaseAdmin, getFirestore, setDocument } = await import('../services/firebaseAdmin.js')
-      await initFirebaseAdmin()
-      const db = getFirestore()
-      await setDocument(db, 'users', String(telegramId), { lastLoginJti: null, loginTokenExpiresAt: null })
-      logger.info('verifyToken: cleared lastLoginJti in Firebase', { telegramId })
-    }
-
-    // Generate a long-lived session token
+    // Issue the long-lived session token used by the website.
     const sessionToken = jwt.sign({
       uid: userRecord.uid || userRecord.telegram_id || userRecord.telegramId || userRecord.id,
       telegramId: userRecord.telegram_id || userRecord.telegramId || userRecord.id,
@@ -117,8 +107,15 @@ export async function verifyToken(req, res) {
       role: userRecord.role || 'user',
     }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN })
 
-    // Return the user and the new session token
-    return res.json({ user: userRecord, token: sessionToken })
+    const result = { user: userRecord, token: sessionToken }
+
+    // Remember this token id briefly so repeat verifications are idempotent
+    // (and the link is effectively one-time within this window).
+    if (jti) {
+      cacheSet(`login_verified:${jti}`, result, 10 * 60 * 1000)
+    }
+
+    return res.json(result)
   } catch (error) {
     logger.error('verifyToken failed', error)
     return res.status(401).json({ error: 'Token yaroqsiz yoki muddati o‘tgan.' })
