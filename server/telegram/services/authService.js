@@ -91,8 +91,10 @@ export async function generateLoginTokenForUser(user, sessionId = null) {
   const callbackConfig = getTelegramCallbackConfig()
   const rawBase = FRONTEND_BASE_URL ? String(FRONTEND_BASE_URL) : callbackConfig.base
   const callbackBase = normalizeLocalhostUrl(rawBase)
+  // The frontend success page reads `sessionId`; send both `sessionId` and
+  // `session` so the callback works regardless of which name the client reads.
   const callbackUrl = callbackBase
-    ? `${callbackBase}/auth/telegram/success?session=${encodeURIComponent(session)}`
+    ? `${callbackBase}/auth/telegram/success?sessionId=${encodeURIComponent(session)}&session=${encodeURIComponent(session)}`
     : null
 
   if (!callbackUrl) {

@@ -168,14 +168,22 @@ async function initTelegramBot(app) {
       }
 
       // ========== HANDLE MANUAL /start FLOW ==========
-      // If user exists and has phone
+      // Existing users also get the website return button on a plain /start, so
+      // login still completes when Telegram did not deliver the deep-link
+      // payload (which is common once the user has already started the bot).
       if (userStatus.exists && userStatus.hasPhone) {
-        logger.info('[AUTH][START] Existing user with complete profile (manual flow)')
-        await ctx.replyWithMarkdown(
-          "*Assalomu alaykum!* 👋\n\nSiz allaqachon ro'yxatdan o'tgan ekansiz.",
-          mainKeyboard()
-        )
-        return
+        logger.info('[AUTH][START] Existing user (manual flow) — sending website return button', { telegramId })
+        try {
+          await telegramAuthService.replyWithReturnButton(ctx, userStatus.user, sessionId || ctx.session.loginSessionId || null)
+          return
+        } catch (err) {
+          logger.error('[AUTH][START] Failed to send return button (manual flow)', err)
+          await ctx.replyWithMarkdown(
+            "*Assalomu alaykum!* 👋\n\nSiz allaqachon ro'yxatdan o'tgan ekansiz.",
+            mainKeyboard()
+          )
+          return
+        }
       }
 
       // User doesn't exist or missing phone - ask for contact
